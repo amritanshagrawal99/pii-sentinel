@@ -130,3 +130,20 @@ def test_redaction_sql_matches_python_on_valid_identifiers(dialect):
         assert con.execute(sql, [text]).fetchone()[0] == redact_text(text, find_spans(text))
     # SQL cannot run checksums, so it redacts look-alikes too: the safe direction for redaction.
     assert con.execute(sql, ["order 2345 6789 0123"]).fetchone()[0] == "order [AADHAAR]"
+
+
+def test_inventory_csv_and_json(db, tmp_path):
+    import csv
+    import json as _json
+    out_csv, out_json = tmp_path / "inv.csv", tmp_path / "inv.json"
+    main(["scan", "--url", f"duckdb:///{db}", "--all", "--inventory", str(out_csv)])
+    main(["scan", "--url", f"duckdb:///{db}", "--all", "--inventory", str(out_json)])
+    items = list(csv.DictReader(out_csv.open()))
+    assert len(items) == 16
+    aadhaar = next(r for r in items if r["column"] == "aadhaar_no")
+    assert (aadhaar["category"], aadhaar["sensitivity"], aadhaar["recommended_control"]) == ("identity", "high", "mask: keep last 4 digits")
+    assert aadhaar["owner"] == "" and aadhaar["scanned_at"].endswith("Z")
+    nested = next(r for r in items if r["path"] == "payments[].upi")
+    assert nested["column"] == "payload" and nested["category"] == "financial"
+    data = _json.loads(out_json.read_text())
+    assert len(data["items"]) == 16 and "notes" in {i["column"] for i in data["items"]}

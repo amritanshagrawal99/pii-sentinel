@@ -100,6 +100,17 @@ Why the thresholds matter: about **1 in 10** random 12-digit numbers passes the 
 numbers therefore matches about 10% of the time, far below 60%. The tests assert both the rejection rate and that the decoy
 column isn't flagged.
 
+## Data inventory (DPDP / GDPR)
+
+```bash
+pii-sentinel scan --url duckdb:///warehouse.duckdb --all --inventory personal_data_inventory.csv   # or .json
+```
+
+The inventory has one row per finding: table, column, JSON path, type, category (identity / contact / financial / online /
+unstructured), sensitivity, confidence, evidence, the recommended control, and a scan timestamp. It also has empty `owner`,
+`lawful_purpose` and `retention` columns. A scanner can't know those, but a record of processing needs them, so data owners
+fill them in. Re-run it on a schedule and diff the files to see new personal data appear.
+
 ## In CI
 
 ```bash
