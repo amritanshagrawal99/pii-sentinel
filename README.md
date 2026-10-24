@@ -48,6 +48,25 @@ Event payloads and API logs hide PII deep inside documents. When most values of 
 `payload.order.ref` (12 random digits) is not flagged. Masking policies apply to whole columns, so nested findings come
 with a commented block in the policy SQL listing the paths, instead of a policy that would silently hide the whole document.
 
+### Inside free text
+
+Support notes and comments leak identifiers that aren't a column of their own. Text columns are searched for identifiers
+*inside* the prose. Every candidate span is validated with the same checks as above, and the column is flagged when at
+least 5% of rows contain one:
+
+> | `customers` | `notes` | PII in free text (email, phone_in) | medium | 75% | spans (25% of 500) | `send invoice to [EMAIL]` |
+
+`order 2345 6789 0123 delayed` in the same column is not counted, because the number fails the Verhoeff check. The policy
+for a free-text column is a redaction, not a full mask, so the rest of the note stays readable:
+
+```sql
+REGEXP_REPLACE(REGEXP_REPLACE(... REGEXP_REPLACE(val, '<email>', '[EMAIL]') ..., '<phone>', '[PHONE_IN]')
+```
+
+The SQL regexes use no backslashes or lookarounds, so the same text works in Snowflake's POSIX regex and Databricks' Java
+regex. They're tested to produce the same output as the Python redaction on real identifiers. SQL can't run checksums, so
+it also redacts look-alikes such as that order number. For redaction, that's the safe direction.
+
 ## Generated policies
 
 ```sql

@@ -4,11 +4,12 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass, field
 
-from .detectors import DETECTORS, NAME_ONLY, Detector
+from .detectors import DETECTORS, NAME_ONLY, SPANS, Detector
 
 MATCH_THRESHOLD = 0.6        # share of sampled values that must match
 HINTED_THRESHOLD = 0.3       # lower bar when the column name also suggests the type
 NAME_ONLY_CONFIDENCE = 0.5
+FREE_TEXT_THRESHOLD = 0.05   # share of rows containing at least one validated identifier
 
 
 @dataclass
@@ -93,7 +94,54 @@ def _classify_values(table: str, col: str, values: list[str], hint_name: str, pa
         if _hinted(hint_name, hints):
             return ColumnFinding(table, col, name, label, sensitivity, NAME_ONLY_CONFIDENCE, 0.0, len(values),
                                  "name", [preview(name, v) for v in values[:2]], path)
-    return None
+    return _free_text(table, col, values, path)
+
+
+def find_spans(text: str) -> list[tuple[str, int, int]]:
+    """(pii type, start, end) for every validated identifier inside `text`, non-overlapping."""
+    by_name = {d.name: d for d in DETECTORS}
+    hits: list[tuple[str, int, int]] = []
+    for name, pattern in SPANS.items():
+        for m in pattern.finditer(text):
+            if any(m.start() < e and s < m.end() for _, s, e in hits):
+                continue
+            if by_name[name].match(m.group(0)):
+                hits.append((name, m.start(), m.end()))
+    return sorted(hits, key=lambda h: h[1])
+
+
+def _free_text(table: str, col: str, values: list[str], path: str | None) -> ColumnFinding | None:
+    from .detectors import HIGH, LOW, MEDIUM
+
+    if not values or not any(" " in v for v in values[:50]):
+        return None  # only prose-like columns
+    rows_with, kinds = 0, {}
+    examples = []
+    for v in values:
+        spans = find_spans(v)
+        if spans:
+            rows_with += 1
+            for name, *_ in spans:
+                kinds[name] = kinds.get(name, 0) + 1
+            if len(examples) < 2:
+                examples.append(redact_text(v, spans))
+    rate = rows_with / len(values)
+    if rate < FREE_TEXT_THRESHOLD or rows_with < 3:
+        return None
+    sens = {d.name: d.sensitivity for d in DETECTORS}
+    rank = {LOW: 0, MEDIUM: 1, HIGH: 2}
+    worst = max((sens[k] for k in kinds), key=rank.get)
+    label = "PII in free text (" + ", ".join(sorted(kinds)) + ")"
+    return ColumnFinding(table, col, "free_text", label, worst, round(min(1.0, 0.5 + rate), 3), round(rate, 3), len(values),
+                         "spans", examples, path)
+
+
+def redact_text(text: str, spans: list[tuple[str, int, int]]) -> str:
+    out, last = [], 0
+    for name, s, e in spans:
+        out += [text[last:s], f"[{name.upper()}]"]
+        last = e
+    return "".join(out + [text[last:]])
 
 
 def scan_table(conn, table: str, sample: int = 1000, quote: str = '"') -> list[ColumnFinding]:

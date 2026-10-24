@@ -9,7 +9,7 @@ RULES = {
     "aadhaar": "keep_last4", "card": "keep_last4", "phone_in": "keep_last4",
     "email": "email", "upi": "email",
     "pan": "full", "passport_in": "full", "gstin": "full", "dob": "full",
-    "person_name": "full", "address": "full", "ip": "full", "ifsc": "none",
+    "person_name": "full", "address": "full", "ip": "full", "ifsc": "none", "free_text": "redact",
 }
 
 
@@ -23,6 +23,8 @@ def preview(pii: str, value: str) -> str:
         return (local[:1] + "***@" + domain) if local else "***@" + domain
     if rule == "none":
         return value
+    if rule == "redact":
+        return value  # free-text examples are already redacted span by span
     return "*****"
 
 
@@ -38,6 +40,8 @@ def _sql_expr(pii: str, dialect: str) -> str:
         return "concat(left(val, 1), '***@', split_part(val, '@', 2))"
     if rule == "none":
         return "val"
+    if rule == "redact":
+        return redact_sql(dialect)
     return "'*****'"
 
 
@@ -84,3 +88,23 @@ def databricks_masks(findings, reader_group: str = "pii_readers", schema: str = 
             lines.append(f"ALTER TABLE {f.table} ALTER COLUMN {f.column} SET MASK {schema}.mask_{f.pii};")
     nested = _nested_notes(findings)
     return "\n".join(lines + ([""] + nested if nested else [])) + "\n"
+
+
+# Portable regexes for SQL redaction: no backslashes (string-literal escaping differs by engine) and no lookarounds
+# (Snowflake uses POSIX ERE). Order matters: emails before UPI handles, cards before Aadhaar.
+REDACT_SQL = (
+    ("EMAIL", "[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+([.][A-Za-z0-9-]+)*[.][A-Za-z]{2,}"),
+    ("UPI", "[A-Za-z0-9._-]{2,64}@[A-Za-z][A-Za-z0-9]{1,63}"),
+    ("CARD", "[3456][0-9]{3}([ -]?[0-9]{4}){2,3}"),
+    ("AADHAAR", "[2-9][0-9]{3}[ -]?[0-9]{4}[ -]?[0-9]{4}"),
+    ("PAN", "[A-Z]{3}[PCHFATBLJG][A-Z][0-9]{4}[A-Z]"),
+    ("PHONE_IN", "([+]91[ -]?)?[6-9][0-9]{4}[ -]?[0-9]{5}"),
+)
+
+
+def redact_sql(dialect: str, arg: str = "val") -> str:
+    expr = arg
+    fn = "REGEXP_REPLACE" if dialect == "snowflake" else "regexp_replace"
+    for tag, pattern in REDACT_SQL:
+        expr = f"{fn}({expr}, '{pattern}', '[{tag}]')"
+    return expr

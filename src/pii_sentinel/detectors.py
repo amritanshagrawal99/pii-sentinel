@@ -122,3 +122,17 @@ NAME_ONLY = (
     ("address", "Postal address", MEDIUM, ("address", "addr_line", "street", "pincode", "pin_code", "zipcode")),
     ("dob", "Date of birth", HIGH, ("dob", "date_of_birth", "birth_date", "birthdate")),
 )
+
+# Unanchored patterns for finding identifiers inside free text. Each candidate span is then validated with the
+# detector's own match() (checksums included), so "order 2345 6789 0123" is not reported as an Aadhaar.
+SPANS: dict[str, re.Pattern] = {
+    "email": re.compile(r"[A-Za-z0-9._%+\-]+@[A-Za-z0-9\-]+(?:\.[A-Za-z0-9\-]+)*\.[A-Za-z]{2,}"),
+    "upi": re.compile(r"\b[A-Za-z0-9.\-_]{2,64}@[A-Za-z][A-Za-z0-9]{1,63}\b(?!\.)"),
+    "aadhaar": re.compile(r"\b[2-9]\d{3}[\s\-]?\d{4}[\s\-]?\d{4}\b"),
+    "card": re.compile(r"\b[3456]\d{3}(?:[\s\-]?\d{4}){2,3}\b"),
+    "pan": re.compile(r"\b[A-Z]{3}[PCHFATBLJG][A-Z]\d{4}[A-Z]\b"),
+    "phone_in": re.compile(r"(?<![\w+])(?:\+91[\s\-]?|0)?[6-9]\d{4}[\s\-]?\d{5}\b"),
+}
+# Redaction regexes are the span patterns without validation (SQL has no Verhoeff): they redact a little more than
+# they detect, which is the safe direction.
+REDACT_ORDER = ("email", "upi", "card", "aadhaar", "pan", "phone_in")
