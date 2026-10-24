@@ -75,5 +75,32 @@ def test_cli_fail_on_and_policies(db, tmp_path, capsys):
     out = tmp_path / "p.sql"
     rc = main(["scan", "--url", f"duckdb:///{db}", "--all", "--policies", "databricks", "-o", str(out), "--fail-on", "high"])
     assert rc == 1 and "SET MASK governance.mask_aadhaar" in out.read_text()
-    assert "# PII scan: 11 column(s) flagged" in capsys.readouterr().out
+    assert "# PII scan: 15 column(s) flagged" in capsys.readouterr().out  # 11 columns + 4 nested paths
     assert main(["scan", "--url", f"duckdb:///{db}", "--table", "vendors", "--fail-on", "high"]) == 0
+
+
+def test_pii_inside_json_and_struct(db):
+    con = duckdb.connect(str(db), read_only=True)
+    found = {(f.column, f.path): f.pii for f in scan_table(con, "events")}
+    con.close()
+    assert found == {
+        ("payload", "customer.phone"): "phone_in",
+        ("payload", "customer.contact.email"): "email",
+        ("payload", "payments[].upi"): "upi",
+        ("device", "ip"): "ip",
+    }  # order.ref (12 random digits), order.total, type and device.os are not flagged
+
+
+def test_flatten_paths():
+    from pii_sentinel.scanner import flatten
+    assert flatten({"a": {"b": 1}, "l": [{"c": "x"}, {"c": "y"}], "n": None}) == {"a.b": ["1"], "l[].c": ["x", "y"]}
+
+
+def test_nested_findings_get_notes_not_column_policies(db):
+    con = duckdb.connect(str(db), read_only=True)
+    findings = scan_table(con, "events")
+    con.close()
+    sql = snowflake_policies(findings)
+    assert "SET MASKING POLICY" not in sql  # a column policy would hide the whole document
+    assert "--   customer.phone: Indian mobile number (medium)" in sql
+    assert "-- events.payload holds PII inside its semi-structured values:" in sql
