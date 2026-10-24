@@ -56,6 +56,14 @@ def cmd_scan(a: argparse.Namespace) -> int:
             print(f"\n{a.policies} policies written to {a.output}")
         else:
             sys.stdout.write("\n" + sql)
+    if a.inventory:
+        from datetime import datetime, timezone
+
+        from .inventory import to_csv, to_json
+        stamp = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+        Path(a.inventory).write_text(to_json(findings, stamp) if a.inventory.endswith(".json") else to_csv(findings, stamp),
+                                     encoding="utf-8")
+        print(f"inventory: {len(findings)} item(s) written to {a.inventory}")
     if a.fail_on and any(_RANK[f.sensitivity] >= _RANK[a.fail_on] for f in findings):
         return 1
     return 0
@@ -73,6 +81,7 @@ def main(argv: list[str] | None = None) -> int:
     s.add_argument("--format", choices=["markdown", "json"], default="markdown")
     s.add_argument("--policies", choices=["snowflake", "databricks"], help="also generate masking SQL")
     s.add_argument("-o", "--output", help="file for the generated policy SQL")
+    s.add_argument("--inventory", metavar="FILE", help="write a personal-data inventory (.csv, or .json) for DPDP / GDPR records")
     s.add_argument("--fail-on", choices=[LOW, MEDIUM, HIGH], help="exit 1 if a column at or above this sensitivity is found (CI gate)")
     s.set_defaults(func=cmd_scan)
     a = p.parse_args(argv)
