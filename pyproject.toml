@@ -1,0 +1,35 @@
+[build-system]
+requires = ["hatchling>=1.21"]
+build-backend = "hatchling.build"
+
+[project]
+name = "pii-sentinel"
+version = "0.1.0"
+description = "Find personal data in warehouse tables (incl. Aadhaar, PAN, GSTIN, UPI) and generate Snowflake / Databricks masking policies."
+readme = "README.md"
+license = { text = "MIT" }
+authors = [{ name = "Amritansh Agrawal" }]
+requires-python = ">=3.10"
+dependencies = []
+keywords = ["pii", "data-governance", "masking", "snowflake", "databricks", "unity-catalog", "aadhaar", "dpdp"]
+classifiers = ["Programming Language :: Python :: 3", "License :: OSI Approved :: MIT License", "Topic :: Database", "Topic :: Security"]
+
+[project.optional-dependencies]
+duckdb = ["duckdb>=1.0"]
+dev = ["pytest>=8", "ruff>=0.5", "duckdb>=1.0", "sqlglot>=30,<31"]
+
+[project.scripts]
+pii-sentinel = "pii_sentinel.cli:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/pii_sentinel"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 140
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP"]

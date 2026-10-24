@@ -1,0 +1,26 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ["3.10", "3.11", "3.12", "3.13"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - run: pip install -e ".[dev]"
+      - run: ruff check src tests examples
+      - run: pytest -q
+      - name: Scan the example database
+        run: |
+          python examples/make_customer_db.py demo.duckdb
+          pii-sentinel scan --url duckdb:///demo.duckdb --all --policies snowflake -o masking.sql
+          grep -q "pii_mask_aadhaar" masking.sql
