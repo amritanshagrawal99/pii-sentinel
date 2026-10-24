@@ -33,6 +33,21 @@ pii-sentinel scan --url duckdb:///customers.duckdb --all --policies snowflake -o
 The same table has decoy columns that are **not** flagged: `order_ref` (12 random digits), free-text `notes`, `segment`,
 `sku`. The report never prints raw values, only masked previews.
 
+### Inside JSON, STRUCT and ARRAY values
+
+Event payloads and API logs hide PII deep inside documents. When most values of a column are JSON objects or arrays (or
+`STRUCT` / `LIST` values), every leaf path is classified separately, and the last key acts as the column-name hint:
+
+> | Table | Column | Type | Sensitivity | Confidence | Evidence |
+> |---|---|---|---|---|---|
+> | `events` | `payload.customer.contact.email` | Email address | medium | 100% | values+name (100% of 300) |
+> | `events` | `payload.customer.phone` | Indian mobile number | medium | 100% | values+name (100% of 300) |
+> | `events` | `payload.payments[].upi` | UPI ID | medium | 100% | values+name (100% of 448) |
+> | `events` | `device.ip` | IP address | low | 100% | values+name (100% of 300) |
+
+`payload.order.ref` (12 random digits) is not flagged. Masking policies apply to whole columns, so nested findings come
+with a commented block in the policy SQL listing the paths, instead of a policy that would silently hide the whole document.
+
 ## Generated policies
 
 ```sql

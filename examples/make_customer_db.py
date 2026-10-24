@@ -6,6 +6,7 @@
 Every identifier is generated with a valid checksum (Verhoeff for Aadhaar, Luhn for cards, mod-36 for GSTIN), and
 every value is fake. Decoy columns (12-digit order numbers, product codes, free text) must NOT be flagged.
 """
+import json
 import random
 import string
 import sys
@@ -68,8 +69,19 @@ def main(path: str) -> None:
     con.executemany("INSERT INTO vendors VALUES (?, ?, ?, ?, ?)", [
         (i, f"Vendor {i} Pvt Ltd", gstin(), "HDFC0" + "".join(rng.choice(string.ascii_uppercase + string.digits) for _ in range(6)),
          "SKU-" + "".join(rng.choice(string.ascii_uppercase) for _ in range(3)) + str(rng.randint(100, 999))) for i in range(100)])
+    # Semi-structured: PII nested at different depths inside JSON and STRUCT values, next to nested decoys.
+    con.execute("CREATE OR REPLACE TABLE events (event_id INTEGER, payload JSON, device STRUCT(os VARCHAR, ip VARCHAR))")
+    events = []
+    for i in range(300):
+        doc = {"type": rng.choice(["checkout", "refund"]), "order": {"ref": "".join(rng.choice(string.digits) for _ in range(12)),
+               "total": round(rng.random() * 5000, 2)},
+               "customer": {"phone": phone(), "contact": {"email": f"user{i}@example.com"}},
+               "payments": [{"upi": f"user{i}@{rng.choice(BANKS)}", "amount": 100} for _ in range(rng.randint(1, 2))]}
+        events.append((i, json.dumps(doc), {"os": rng.choice(["android", "ios"]),
+                                             "ip": f"49.{rng.randint(0, 255)}.{rng.randint(0, 255)}.{rng.randint(1, 254)}"}))
+    con.executemany("INSERT INTO events VALUES (?, ?, ?)", events)
     con.close()
-    print(f"wrote {path}: customers (500 rows), vendors (100 rows)")
+    print(f"wrote {path}: customers (500 rows), vendors (100 rows), events (300 rows, JSON + STRUCT)")
 
 
 if __name__ == "__main__":

@@ -31,8 +31,8 @@ def to_markdown(findings) -> str:
     if not findings:
         return "\n".join(lines + ["No personal data detected."]) + "\n"
     lines += ["| Table | Column | Type | Sensitivity | Confidence | Evidence | Masked sample |", "|---|---|---|---|---|---|---|"]
-    for f in sorted(findings, key=lambda f: (-_RANK[f.sensitivity], f.table, f.column)):
-        lines.append(f"| `{f.table}` | `{f.column}` | {f.label} | {f.sensitivity} | {f.confidence:.0%} | {f.evidence} "
+    for f in sorted(findings, key=lambda f: (-_RANK[f.sensitivity], f.table, f.location)):
+        lines.append(f"| `{f.table}` | `{f.location}` | {f.label} | {f.sensitivity} | {f.confidence:.0%} | {f.evidence} "
                      f"({f.match_rate:.0%} of {f.sampled}) | {', '.join(f'`{e}`' for e in f.examples)} |")
     return "\n".join(lines) + "\n"
 
