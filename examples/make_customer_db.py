@@ -62,7 +62,10 @@ def main(path: str) -> None:
                      f"{rng.randint(1, 300)}, MG Road, Bengaluru 5600{rng.randint(10, 99)}",
                      rng.choice(["retail", "sme", "premium"]),
                      "".join(rng.choice(string.digits) for _ in range(12)),  # decoy: 12-digit order number
-                     rng.choice(["call back later", "prefers email", "", "VIP"]),
+                     # Support notes: mostly harmless, but ~1 in 5 agents pasted a phone number or email into them.
+                     rng.choice(["call back later", "prefers email", "VIP customer", "asked about refund status",
+                                 f"customer said call on {phone()} after 6pm", f"send invoice to {handle}@example.com",
+                                 "order 2345 6789 0123 delayed", "wants paper statements"]),
                      f"10.{rng.randint(0, 255)}.{rng.randint(0, 255)}.{rng.randint(1, 254)}"))
     con.executemany("INSERT INTO customers VALUES (" + ", ".join("?" * 13) + ")", rows)
     con.execute("CREATE OR REPLACE TABLE vendors (vendor_id INTEGER, legal_name VARCHAR, gstin VARCHAR, ifsc VARCHAR, sku VARCHAR)")

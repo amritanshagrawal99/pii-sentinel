@@ -32,11 +32,11 @@ def test_every_pii_column_found(findings):
     assert {c: f.pii for c, f in findings.items()} == {
         "full_name": "person_name", "email": "email", "mobile": "phone_in", "aadhaar_no": "aadhaar", "pan": "pan",
         "upi_handle": "upi", "card_number": "card", "address": "address", "last_login_ip": "ip",
-        "gstin": "gstin", "ifsc": "ifsc"}
+        "gstin": "gstin", "ifsc": "ifsc", "notes": "free_text"}
 
 
 def test_decoys_not_flagged(findings):
-    for decoy in ("customer_id", "segment", "order_ref", "notes", "vendor_id", "legal_name", "sku"):
+    for decoy in ("customer_id", "segment", "order_ref", "vendor_id", "legal_name", "sku"):
         assert decoy not in findings  # order_ref is 12 random digits: ~10% pass Verhoeff, far below the threshold
 
 
@@ -75,7 +75,7 @@ def test_cli_fail_on_and_policies(db, tmp_path, capsys):
     out = tmp_path / "p.sql"
     rc = main(["scan", "--url", f"duckdb:///{db}", "--all", "--policies", "databricks", "-o", str(out), "--fail-on", "high"])
     assert rc == 1 and "SET MASK governance.mask_aadhaar" in out.read_text()
-    assert "# PII scan: 15 column(s) flagged" in capsys.readouterr().out  # 11 columns + 4 nested paths
+    assert "# PII scan: 16 column(s) flagged" in capsys.readouterr().out  # 12 columns + 4 nested paths
     assert main(["scan", "--url", f"duckdb:///{db}", "--table", "vendors", "--fail-on", "high"]) == 0
 
 
@@ -104,3 +104,29 @@ def test_nested_findings_get_notes_not_column_policies(db):
     assert "SET MASKING POLICY" not in sql  # a column policy would hide the whole document
     assert "--   customer.phone: Indian mobile number (medium)" in sql
     assert "-- events.payload holds PII inside its semi-structured values:" in sql
+
+
+def test_free_text_column_flagged_with_redacted_examples(findings):
+    f = findings["notes"]
+    assert f.pii == "free_text" and f.evidence == "spans"
+    assert f.label == "PII in free text (email, phone_in)" and 0.05 <= f.match_rate < 0.5
+    assert all("[PHONE_IN]" in e or "[EMAIL]" in e for e in f.examples)
+
+
+def test_free_text_spans_are_validated():
+    from pii_sentinel.scanner import find_spans
+    assert find_spans("order 2345 6789 0123 delayed") == []  # fails Verhoeff: not an Aadhaar
+    assert [k for k, *_ in find_spans("aadhaar 2345 6789 0124, mail a@b.co")] == ["aadhaar", "email"]  # in text order
+
+
+@pytest.mark.parametrize("dialect", ["snowflake", "databricks"])
+def test_redaction_sql_matches_python_on_valid_identifiers(dialect):
+    from pii_sentinel.masks import redact_sql
+    from pii_sentinel.scanner import find_spans, redact_text
+    con = duckdb.connect()
+    sql = sqlglot.transpile(f"SELECT {redact_sql(dialect)} FROM (SELECT ? AS val)", read=dialect, write="duckdb")[0]
+    for text in ["call 98450 12345 or mail asha.rao@example.com", "card 4111 1111 1111 1111; aadhaar 2345 6789 0124",
+                 "UPI asha@okaxis, PAN ABCPE1234F"]:
+        assert con.execute(sql, [text]).fetchone()[0] == redact_text(text, find_spans(text))
+    # SQL cannot run checksums, so it redacts look-alikes too: the safe direction for redaction.
+    assert con.execute(sql, ["order 2345 6789 0123"]).fetchone()[0] == "order [AADHAAR]"
